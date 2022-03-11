@@ -1,5 +1,4 @@
 import base64
-import re
 import requests.auth
 
 from requests.adapters import HTTPAdapter
@@ -56,3 +55,71 @@ class Client:
         def __call__(self, r):
             r.headers["authorization"] = f"Bearer {self._token}"
             return r
+
+
+class WorkspaceClient(Client):
+    """
+    Client to talk to the workspace to read / write notebooks
+    """
+    _IMPORT_API = "/import"
+    _EXPORT_API = "/export"
+    _LIST_API = "/list"
+
+    def __init__(self, api_url: str, api_token: str):
+        """
+        :param api_url: The url that can be used to talk to the workspace
+        :param api_token: Required auth token
+        """
+        super().__init__(api_url, api_token, "workspace")
+
+    def import_source(self, path: str, local_path: str) -> None:
+        with open(local_path, "rb") as fp:
+            content = fp.read()
+        self._import_notebook(path, content, "SOURCE")
+
+    def _import_notebook(self, path: str, content: str, content_format: str) -> None:
+        encoded_content = base64.standard_b64encode(content)
+        data = {
+            "path": path,
+            "format": content_format,
+            "language": "PYTHON",
+            "content": encoded_content.decode(),
+            "overwrite": "true",
+        }
+
+        with self.get_request_session() as s:
+            resp = s.post(self._base_url + self._IMPORT_API,
+                          json=data,
+                          auth=self.get_auth(),
+                          )
+
+        if resp.status_code != 200:
+            raise Exception(
+                f"Unable to generate notebook at {path} using format {content_format}: {resp.text}")
+
+    def export_source(self, path: str, local_path: str):
+        content = self._export_notebook(path, "SOURCE")
+        with open(local_path, "w") as fp:
+            fp.write(content)
+
+    def _export_notebook(self, path: str, content_format: str) -> str:
+        data = {
+            "path": path,
+            "format": content_format,
+        }
+
+        with self.get_request_session() as s:
+            resp = s.get(self._base_url + self._EXPORT_API, json=data, auth=self.get_auth())
+        if resp.status_code != 200:
+            raise Exception(
+                f"Unable to export notebook at {path} using format {content_format}: {resp.text}")
+
+        content_b64 = resp.json()["content"]
+        return base64.standard_b64decode(content_b64).decode("utf-8")
+
+    def list(self, path: str) -> bool:
+        data = {"path": path}
+        with self.get_request_session() as s:
+            resp = s.get(self._base_url + self._LIST_API, json=data, auth=self.get_auth())
+
+        return resp.json()

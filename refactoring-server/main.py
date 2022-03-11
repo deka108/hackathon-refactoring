@@ -43,16 +43,18 @@ async def find_functions_on_file(path: str):
 # refactor functions
 refactor_route = APIRouter()
 
+
 class MoveRequest(BaseModel):
     src: str
     function_names: conlist(str, min_items=1)
     dst: str
+    notebook_id: str
 
-@refactor_route.post("/move")
-async def move(req: MoveRequest):
-    mu.move_functions(req.src, req.function_names, req.dst)
+
+@refactor_route.post("/move-function")
+async def move_functions(req: MoveRequest):
+    ru.move_functions(req.src, req.function_names, req.dst, req.notebook_id)
     return f"moved {req.function_names} from {req.src} to {req.dst}"
-
 
 app = FastAPI()
 app.add_middleware(
