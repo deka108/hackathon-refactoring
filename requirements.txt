@@ -1,0 +1,4 @@
+fastapi
+rope
+uvicorn[standard]
+requests
