@@ -1,4 +1,6 @@
 import base64
+from pathlib import Path
+
 import requests.auth
 
 from requests.adapters import HTTPAdapter
@@ -77,7 +79,7 @@ class WorkspaceClient(Client):
             content = fp.read()
         self._import_notebook(path, content, "SOURCE")
 
-    def _import_notebook(self, path: str, content: str, content_format: str) -> None:
+    def _import_notebook(self, path: str, content: bytes, content_format: str) -> None:
         encoded_content = base64.standard_b64encode(content)
         data = {
             "path": path,
@@ -97,9 +99,9 @@ class WorkspaceClient(Client):
             raise Exception(
                 f"Unable to generate notebook at {path} using format {content_format}: {resp.text}")
 
-    def export_source(self, path: str, local_path: str):
+    def export_source(self, path: str, local_path: Path):
         content = self._export_notebook(path, "SOURCE")
-        with open(local_path, "w") as fp:
+        with local_path.open("w") as fp:
             fp.write(content)
 
     def _export_notebook(self, path: str, content_format: str) -> str:
