@@ -29,6 +29,8 @@ class RefactoringController(object):
         self._staging_path_str = str(self._staging_path)
         self.original_objs = None
         self.staging_objs = None
+        # map staging to original if it exist
+        self.staging_idx = {}
 
         self._client = WorkspaceClient(api_url=api_url, api_token=api_token)
         self._ref_util = RefactoringUtils(self._staging_path_str)
@@ -38,7 +40,10 @@ class RefactoringController(object):
             self.setup()
 
             # TODO: do the refactor
+            # the refactor may modify exist files, create new files or remove files
             changed_files = func(*args, **kwargs)
+
+            self.copy_affected_files_to_workspace()
 
             # TODO: copy to the workspace
             for file in changed_files:
@@ -68,41 +73,44 @@ class RefactoringController(object):
         staging_objs = []
 
         for obj in original_objs:
+            # original obj
             obj_type = obj["object_type"]
             obj_path = obj["path"]
             obj_name = Path(obj_path).name
+
+            # staging obj
             staging_obj = dict(obj)
+            staging_path = ""
+
             if obj_type == "NOTEBOOK":
                 # export that as file to the correct module / directory
                 # add python extension to the file name
                 staging_path = parent_path.joinpath(f"{obj_name}.py")
-                staging_obj["path"] = str(staging_path)
                 self._client.export_source(obj["path"], staging_path)
             elif obj_type == "DIRECTORY":
                 staging_path = parent_path.joinpath(obj_name)
                 # create pkg on staging directory
-                nested_mod = self.get_mod_from_path(staging_path)
+                nested_mod = self._ref_util.get_mod_from_path(staging_path)
                 self._ref_util.create_pkg(nested_mod)
 
-                # recursively list the contents in directory
+                # recursively list and get the contents in directory
                 ori_children, staging_children = self.copy_to_staging(
                     repo_dir=obj_path,
                     parent_path=staging_path,
                 )
                 obj["children"] = ori_children
-                staging_obj["path"] = str(staging_path)
                 staging_obj["children"] = staging_children
             elif obj_type == "FILE":
                 staging_path = parent_path.joinpath(obj_name)
                 shutil.copyfile("/Workspace" + obj_path, staging_path)
-                staging_obj["path"] = str(staging_path)
+
+            # update staging object and index
+            staging_key = str(staging_path)
+            staging_obj["path"] = staging_key
+            self.staging_idx[staging_key] = obj_path
             staging_objs.append(staging_obj)
 
         return original_objs, staging_objs
-
-    @staticmethod
-    def get_mod_from_path(path: Path):
-        return str(path).strip("/").replace("/", ".")
 
     # called after the refactoring is done
     def copy_to_workspace(self):
@@ -112,6 +120,9 @@ class RefactoringController(object):
 
     # only copy those which are affected by the refactor
     def copy_affected_files_to_workspace(self):
+        # get the affected files, reupload them
+        # check if there are additional files not in repo
+        # check if there are files removed from the repo
         pass
 
     def cleanup(self):

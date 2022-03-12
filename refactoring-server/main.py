@@ -1,5 +1,3 @@
-import os
-
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -10,9 +8,10 @@ from typing import List
 
 from refactoring_utils import RefactoringUtils
 
+
 root_path = Path('..').resolve()
 
-ru = RefactoringUtils(root = str(root_path))
+ru = RefactoringUtils(root=str(root_path))
 
 # listing functions
 list_route = APIRouter()
@@ -25,7 +24,7 @@ class Content(BaseModel):
 class ListOfFunctions(BaseModel):
     functions: List[str]
 
-    
+
 @list_route.post("/code-string", response_model=ListOfFunctions)
 async def find_functions_on_script(content: Content):
     return {"functions": ru.find_functions_on_script(content)}
@@ -39,6 +38,7 @@ async def find_functions_on_notebook(path: str):
 @list_route.get("/file", response_model=ListOfFunctions)
 async def find_functions_on_file(path: str):
     return {"functions": ru.find_functions_on_script(path)}
+
 
 # refactor functions
 refactor_route = APIRouter()
@@ -64,6 +64,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 app.include_router(list_route, prefix="/list-functions")
 app.include_router(refactor_route, prefix="/refactor")
 
