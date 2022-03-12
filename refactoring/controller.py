@@ -2,7 +2,9 @@ import os
 import shutil
 import uuid
 from pathlib import Path
-from typing import Callable, Any
+from typing import Callable, Any, List
+
+from rope.base.resources import Resource
 
 from refactor import RefactoringUtils
 from workspace_client import WorkspaceClient
@@ -20,7 +22,7 @@ from workspace_client import WorkspaceClient
 
 
 class RefactoringController(object):
-    def __init__(self, repo: str, api_url=os.getenv("API_URL"), api_token=os.getenv("DB_TOKEN")):
+    def __init__(self, repo: str, api_url=os.getenv("API_URL"), api_token=os.getenv("DB_TOKEN"), base_workspace_dir="/Workspace"):
         """
 
         Parameters
@@ -29,6 +31,7 @@ class RefactoringController(object):
         """
         self._repo = repo
         self._unique_id = str(uuid.uuid4())
+        self.base_workspace_dir = base_workspace_dir
         self._staging_path = Path(f"/tmp/refactor-{self._unique_id}")
         self._staging_path_str = str(self._staging_path)
         # may not need these
@@ -48,13 +51,9 @@ class RefactoringController(object):
 
             # TODO: do the refactor
             # the refactor may modify exist files, create new files or remove files
-            changed_files = func(*args, **kwargs)
+            changed_resources = func(*args, **kwargs)
 
-            self.copy_affected_files_to_workspace()
-
-            # TODO: copy to the workspace
-            for file in changed_files:
-                print(file)
+            self.copy_to_workspace(changed_resources)
         finally:
             self.cleanup()
 
@@ -115,7 +114,7 @@ class RefactoringController(object):
                 staging_obj["children"] = staging_children
             elif obj_type == "FILE":
                 staging_path = parent_staging_dir.joinpath(obj_name)
-                shutil.copyfile("/Workspace" + obj_path, staging_path)
+                shutil.copyfile(self.base_workspace_dir + obj_path, staging_path)
 
             # update staging object and index
             staging_key = str(staging_path)
@@ -128,42 +127,67 @@ class RefactoringController(object):
 
         return original_objs, staging_objs
 
-    # called after the refactoring is done
-    def copy_to_workspace(self):
-        # copy everything in staging area to workspace
-        # delete files that no longer exist in staging area to workspace
-        pass
+    def is_notebook(self, path):
+        with open(path) as f:
+            first_line = f.readline()
+            return "# Databricks notebook source" in first_line
+
+    @staticmethod
+    def remove_prefix(text, prefix):
+        return text[len(prefix):]
 
     # only copy those which are affected by the refactor
-    def copy_affected_files_to_workspace(self, changed_files):
-        # get the affected files: if it exists in staging_idx re-upload them
-        # otherwise create new file and/or module (copy)
-        for changed_path in changed_files:
-            if changed_path in self.staging_idx:
-                ws_path = self.staging_idx[changed_path]
-                if ws_path in self.original_idx:
-                    obj_type = self.original_idx[ws_path]["object_type"]
-                    # if it's a notebook
-                    if obj_type == "NOTEBOOK":
-                        self._client.import_source(ws_path, changed_path)
-                    # if it's a file
-                    elif obj_type == "FILE":
-                        shutil.copyfile(changed_path, "/Workspace" + ws_path)
+    def copy_to_workspace(self, changed_files: List[Resource]):
+        # algorithm
+        # 1. get the deleted and modified set
+        # 2. for each modified: upload to Repo
+        # 3. for each deleted: delete from Repo
+
+        # data: set of relative paths (to staging path --> will be mapped to a Repo path by prepending the Repo)
+        mod_or_created_set = set()
+        deleted_set = set()
+
+        # get the modified or created set vs delete set from changed_files
+        for changed_src in changed_files:
+            if changed_src.exists():
+                mod_or_created_set.add(changed_src.path)
             else:
-                # map the changed_path into workspace path:
-                #
-                # changed path doesn't exist in original paths
-                # create new modules if necessary
-                # import source
-                pass
-        # check if there are additional files not in repo
-        # algo:
-        # list all files in staging dir
-            # see if they are in staging_idx
-            # if doesn't exist, mkdirs / upload to workspace
-        # check if there are files removed from the repo
-            # get the keys in staging_idx subtract it from list of files in staging dir
-        pass
+                deleted_set.add(changed_src.path)
+
+        # add to created set: get the ones that exist in changed but not in Repos
+        # repos paths --> drop the repos prefix
+        repos_paths = set(self.original_idx.keys())
+        repos_paths = set(self.remove_prefix(p, self._repo + "/") for p in repos_paths)
+
+        # staging paths --> drop the staging paths prefix
+        staging_paths = set(self.staging_idx.keys())
+        staging_paths = set(self.remove_prefix(p, self._staging_path_str + "/") for p in staging_paths)
+
+        # get the modified / created set: the ones exist in staging but not in repo
+        mod_or_created_set = mod_or_created_set | staging_paths.difference(repos_paths)
+        mod_or_created_set = sorted(mod_or_created_set)
+
+        # add to deleted set: get the ones that exist in Repos but not in staging
+        deleted_set = deleted_set | repos_paths.difference(staging_paths)
+        deleted_set = sorted(deleted_set)
+
+        # create or modified: exist in staging, may or may not exist in repo
+        for path in mod_or_created_set:
+            staging_path = self._staging_path.joinpath(path)
+            ws_path_key = f"{self._repo}/{path}"
+
+            if staging_path.is_dir():
+                self._client.mkdirs(ws_path_key)
+            elif self.is_notebook(staging_path):
+                self._client.import_source(ws_path_key, str(staging_path))
+            elif staging_path.is_file():
+                shutil.copyfile(staging_path, self.base_workspace_dir + ws_path_key)
+
+        # deleted: doesn't exist in staging
+        for i, path in enumerate(deleted_set):
+            ws_path_key = f"{self._repo}/{path}"
+            # optimization: if the parent path is already deleted then we don't need to delete
+            self._client.delete(ws_path_key, recursive=True)
 
     def cleanup(self):
         shutil.rmtree(self._staging_path)

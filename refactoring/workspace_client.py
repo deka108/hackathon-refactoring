@@ -67,6 +67,7 @@ class WorkspaceClient(Client):
     _EXPORT_API = "/export"
     _LIST_API = "/list"
     _MKDIRS_API = "/mkdirs"
+    _DELETE_API = "/delete"
 
     def __init__(self, api_url: str, api_token: str):
         """
@@ -128,6 +129,16 @@ class WorkspaceClient(Client):
             resp = s.post(self._base_url + self._MKDIRS_API, json=data, auth=self.get_auth())
         if resp.status_code != 200:
             raise Exception(f"Unable to mkdirs {path}")
+
+    def delete(self, path: str, recursive: bool = False):
+        data = {
+            "path": path,
+            "recursive": recursive
+        }
+        with self.get_request_session() as s:
+            resp = s.post(self._base_url + self._DELETE_API, json=data, auth=self.get_auth())
+        if resp.status_code != 200:
+            raise Exception(f"Unable to delete {path}")
 
     def list(self, path: str) -> bool:
         data = {"path": path}

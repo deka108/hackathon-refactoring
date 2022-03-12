@@ -83,7 +83,7 @@ class RefactoringUtils(object):
 
         return self._project.get_resource(path)
     
-    def move_functions(self, src_path: str, func_names: List[str], dest_path: str) -> List[str]:
+    def move_functions(self, src_path: str, func_names: List[str], dest_path: str) -> List[Resource]:
         src_res = self._project.get_resource(src_path)
         # may modify the staging directory: adding new files
         dest_res = self.get_or_create_resource(dest_path)
@@ -96,7 +96,8 @@ class RefactoringUtils(object):
                 mover = move.create_move(self._project, src_res, occ.offset)
                 changes = mover.get_changes(dest_res)
                 self._project.do(changes)
+                # changed_file's path is relative to the staging directory, so it should be identical as the repos
                 for changed_file in changes.get_changed_resources():
-                    changed_files.append(changed_file.path)
+                    changed_files.append(changed_file)
 
         return changed_files
