@@ -2,7 +2,7 @@ import os
 import shutil
 import uuid
 from pathlib import Path
-from typing import Callable, Any, List
+from typing import Callable, Any, List, Set
 
 from rope.base.resources import Resource
 
@@ -160,7 +160,7 @@ class RefactoringController(object):
         repos_paths = set(self.remove_prefix(p, self._repo + "/") for p in repos_paths)
 
         # staging paths --> drop the staging paths prefix
-        staging_paths = set(self.staging_idx.keys())
+        staging_paths = self.tree_dir(str(self._staging_path))
         staging_paths = set(self.remove_prefix(p, self._staging_path_str + "/") for p in staging_paths)
 
         # get the modified / created set: the ones exist in staging but not in repo
@@ -193,7 +193,7 @@ class RefactoringController(object):
         shutil.rmtree(self._staging_path)
 
     @staticmethod
-    def tree_dir(path: str):
+    def tree_dir(path: str) -> Set[str]:
         filetree = []
         for dirname, dirnames, filenames in os.walk(path):
             # print path to all subdirectories first.
@@ -203,5 +203,5 @@ class RefactoringController(object):
             # print path to all filenames.
             for filename in filenames:
                 filetree.append(os.path.join(dirname, filename))
-        filetree.sort()
-        return filetree
+
+        return set(filetree)
