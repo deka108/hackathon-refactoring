@@ -2,6 +2,7 @@ import os
 import shutil
 import uuid
 from pathlib import Path
+from typing import Callable, Any
 
 from refactoring_utils import RefactoringUtils
 from workspace_client import WorkspaceClient
@@ -19,12 +20,12 @@ from workspace_client import WorkspaceClient
 
 
 class RefactoringController(object):
-    def __init__(self, repo):
+    def __init__(self, repo: str):
         api_url = os.getenv("API_URL")
         api_token = os.getenv("DB_TOKEN")
         self._repo = repo
         self._unique_id = str(uuid.uuid4())
-        self._staging_path = Path(f"/tmp-refactoring-{self._unique_id}")
+        self._staging_path = Path(f"/tmp/refactor-{self._unique_id}")
         self._staging_path_str = str(self._staging_path)
         self.original_objs = None
         self.staging_objs = None
@@ -32,13 +33,23 @@ class RefactoringController(object):
         self._client = WorkspaceClient(api_url=api_url, api_token=api_token)
         self._ref_util = RefactoringUtils(self._staging_path_str)
 
+    def refactor(self, func: Callable[..., Any], *args, **kwargs):
+        try:
+            self.setup()
+
+            # TODO: do the refactor
+            changed_files = func(*args, **kwargs)
+
+            # TODO: copy to the workspace
+            for file in changed_files:
+                print(file)
+        finally:
+            self.cleanup()
+
     def setup(self):
         # create staging folder
-        try:
-            self._create_staging_folder()
-            self.get_all_objects()
-        finally:
-            self._cleanup()
+        self._create_staging_folder()
+        self.get_all_objects()
 
     def _create_staging_folder(self):
         self._staging_path.mkdir(parents=True, exist_ok=True)
@@ -50,7 +61,7 @@ class RefactoringController(object):
         )
 
     # called before any refactoring is done
-    def copy_to_staging(self, repo_dir, parent_path):
+    def copy_to_staging(self, repo_dir: str, parent_path: Path):
         res = self._client.list(repo_dir)
         original_objs = res.get("objects", [])
         original_objs.sort(key=lambda x: x["path"])
@@ -90,12 +101,18 @@ class RefactoringController(object):
         return original_objs, staging_objs
 
     @staticmethod
-    def get_mod_from_path(path):
+    def get_mod_from_path(path: Path):
         return str(path).strip("/").replace("/", ".")
 
     # called after the refactoring is done
     def copy_to_workspace(self):
+        # copy everything in staging area to workspace
+        # delete files that no longer exist in staging area to workspace
         pass
 
-    def _cleanup(self):
+    # only copy those which are affected by the refactor
+    def copy_affected_files_to_workspace(self):
+        pass
+
+    def cleanup(self):
         shutil.rmtree(self._staging_path)
