@@ -66,6 +66,7 @@ class WorkspaceClient(Client):
     _IMPORT_API = "/import"
     _EXPORT_API = "/export"
     _LIST_API = "/list"
+    _MKDIRS_API = "/mkdirs"
 
     def __init__(self, api_url: str, api_token: str):
         """
@@ -118,6 +119,15 @@ class WorkspaceClient(Client):
 
         content_b64 = resp.json()["content"]
         return base64.standard_b64decode(content_b64).decode("utf-8")
+
+    def mkdirs(self, path: str):
+        data = {
+            "path": path
+        }
+        with self.get_request_session() as s:
+            resp = s.post(self._base_url + self._MKDIRS_API, json=data, auth=self.get_auth())
+        if resp.status_code != 200:
+            raise Exception(f"Unable to mkdirs {path}")
 
     def list(self, path: str) -> bool:
         data = {"path": path}

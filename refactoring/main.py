@@ -6,7 +6,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, conlist
 from typing import List
 
-from refactoring_utils import RefactoringUtils
+from refactor import RefactoringUtils
 
 
 root_path = Path('..').resolve()
