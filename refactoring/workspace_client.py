@@ -1,5 +1,6 @@
 import base64
 from pathlib import Path
+from typing import Dict
 
 import requests.auth
 
@@ -140,7 +141,7 @@ class WorkspaceClient(Client):
         if resp.status_code != 200:
             raise Exception(f"Unable to delete {path}")
 
-    def list(self, path: str) -> bool:
+    def list(self, path: str) -> Dict:
         data = {"path": path}
         with self.get_request_session() as s:
             resp = s.get(self._base_url + self._LIST_API, json=data, auth=self.get_auth())

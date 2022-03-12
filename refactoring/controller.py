@@ -2,12 +2,13 @@ import os
 import shutil
 import uuid
 from pathlib import Path
-from typing import Callable, Any, List, Set
+from typing import Callable, Any, List, Set, Dict
 
 from rope.base.resources import Resource
 
 from refactor import RefactoringUtils
 from workspace_client import WorkspaceClient
+
 
 # Algorithm
 
@@ -22,7 +23,8 @@ from workspace_client import WorkspaceClient
 
 
 class RefactoringController(object):
-    def __init__(self, repo: str, api_url=os.getenv("API_URL"), api_token=os.getenv("DB_TOKEN"), base_workspace_dir="/Workspace"):
+    def __init__(self, repo: str, api_url=os.getenv("API_URL"), api_token=os.getenv("DB_TOKEN"),
+                 base_workspace_dir="/Workspace"):
         """
 
         Parameters
@@ -31,7 +33,7 @@ class RefactoringController(object):
         """
         self._repo = repo
         self._unique_id = str(uuid.uuid4())
-        self.base_workspace_dir = base_workspace_dir
+        self._base_workspace = base_workspace_dir
         self._staging_path = Path(f"/tmp/refactor-{self._unique_id}")
         self._staging_path_str = str(self._staging_path)
         # may not need these
@@ -43,13 +45,35 @@ class RefactoringController(object):
         self.original_idx = {}
 
         self._client = WorkspaceClient(api_url=api_url, api_token=api_token)
-        self._ref_util = RefactoringUtils(self._staging_path_str)
+        self.ref_util = RefactoringUtils(self._staging_path_str)
+
+    def find_functions_in_script(self, script: str) -> List[str]:
+        try:
+            self._create_staging_folder()
+            return self.ref_util.find_functions_on_script(script)
+        finally:
+            self.cleanup()
+
+    def find_functions_on_notebook(self, notebook_path: str) -> List[str]:
+        try:
+            self._create_staging_folder()
+            obj_name = Path(notebook_path).name
+            # find the equivalent path in staging based on the database
+            staging_path = self._staging_path.joinpath(obj_name)
+            self._client.export_source(notebook_path, staging_path)
+            with staging_path.open("r") as fp:
+                return self.ref_util.find_functions_on_script(fp.read())
+        finally:
+            self.cleanup()
+
+    def find_functions_on_file(self, file_path: str) -> List[str]:
+        with open(self._base_workspace + file_path, "r") as fp:
+            return self.ref_util.find_functions_on_script(fp.read())
 
     def refactor(self, func: Callable[..., Any], *args, **kwargs):
         try:
             self.setup()
 
-            # TODO: do the refactor
             # the refactor may modify exist files, create new files or remove files
             changed_resources = func(*args, **kwargs)
 
@@ -73,7 +97,7 @@ class RefactoringController(object):
         )
 
     # called before any refactoring is done
-    def copy_to_staging(self, repo_dir: str, parent_staging_dir: Path, parent_dir: str):
+    def copy_to_staging(self, repo_dir: str, parent_staging_dir: Path, parent_dir: str) -> (Dict, Dict):
         res = self._client.list(repo_dir)
         original_objs = res.get("objects", [])
         original_objs.sort(key=lambda x: x["path"])
@@ -101,8 +125,8 @@ class RefactoringController(object):
                     nested_parent_dir = f"{parent_dir}/{obj_name}"
                 else:
                     nested_parent_dir = obj_name
-                nested_mod = self._ref_util.get_mod_from_path(nested_parent_dir)
-                self._ref_util.create_pkg(nested_mod)
+                nested_mod = self.ref_util.get_mod_from_path(Path(nested_parent_dir))
+                self.ref_util.create_pkg(nested_mod)
 
                 # recursively list and get the contents in directory
                 ori_children, staging_children = self.copy_to_staging(
@@ -114,7 +138,7 @@ class RefactoringController(object):
                 staging_obj["children"] = staging_children
             elif obj_type == "FILE":
                 staging_path = parent_staging_dir.joinpath(obj_name)
-                shutil.copyfile(self.base_workspace_dir + obj_path, staging_path)
+                shutil.copyfile(self._base_workspace + obj_path, staging_path)
 
             # update staging object and index
             staging_key = str(staging_path)
@@ -181,7 +205,7 @@ class RefactoringController(object):
             elif self.is_notebook(staging_path):
                 self._client.import_source(ws_path_key, str(staging_path))
             elif staging_path.is_file():
-                shutil.copyfile(staging_path, self.base_workspace_dir + ws_path_key)
+                shutil.copyfile(staging_path, self._base_workspace + ws_path_key)
 
         # deleted: doesn't exist in staging
         for i, path in enumerate(deleted_set):
@@ -193,15 +217,22 @@ class RefactoringController(object):
         shutil.rmtree(self._staging_path)
 
     @staticmethod
-    def tree_dir(path: str) -> Set[str]:
+    def tree_dir(path: str, root_dir: str = "") -> Set[str]:
         filetree = []
         for dirname, dirnames, filenames in os.walk(path):
+            # get the abs path
+            # rel_dir = dirname
+
+            # get the relative path instead
+            rel_dir = os.path.relpath(dirname, root_dir)
+            rel_dir = rel_dir.lstrip("../")
+
             # print path to all subdirectories first.
             for subdirname in dirnames:
-                filetree.append(os.path.join(dirname, subdirname))
+                filetree.append(os.path.join(rel_dir, subdirname))
 
             # print path to all filenames.
             for filename in filenames:
-                filetree.append(os.path.join(dirname, filename))
+                filetree.append(os.path.join(rel_dir, filename))
 
         return set(filetree)

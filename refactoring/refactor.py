@@ -36,10 +36,6 @@ class RefactoringUtils(object):
         res = self._project.get_resource(file_path)
         py_mod = self._project.get_module(libutils.modname(res))
         return self._get_functions_from_pymod(py_mod)
-    
-    def find_functions_on_notebook(self, notebook_path: str) -> List[str]:
-        # find the equivalent path in staging based on the database
-        return self.find_functions_on_file(notebook_path)
 
     def create_pkg(self, pkg_name: str):
         create_package(self._project, pkg_name)
