@@ -1,3 +1,4 @@
+import ast
 from itertools import accumulate
 from pathlib import Path
 from typing import List, Optional
@@ -24,14 +25,21 @@ class RefactoringUtils(object):
     def _get_functions_from_pymod(pymod: PyModule) -> List[str]:
         funcs = []
         for name, item in pymod.get_attributes().items():
-            if item.get_object().get_kind() == "function":
-                funcs.append(name)
+            try:
+                item_ast = item.get_object().get_ast()
+                if isinstance(item_ast, ast.FunctionDef):
+                    funcs.append(name)
+                elif isinstance(item_ast, ast.ClassDef):
+                    funcs.append(name)
+            except AttributeError:
+                pass
         return funcs
     
     def find_functions_on_script(self, code_str: str) -> List[str]:
         py_mod = libutils.get_string_module(self._project, code_str)
         return self._get_functions_from_pymod(py_mod)
-    
+
+    # cannot be used for now
     def find_functions_on_file(self, file_path: str) -> List[str]:
         res = self._project.get_resource(file_path)
         py_mod = self._project.get_module(libutils.modname(res))

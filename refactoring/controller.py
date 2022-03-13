@@ -7,7 +7,7 @@ from typing import Callable, Any, List, Set, Dict
 from rope.base.resources import Resource
 
 from refactor import RefactoringUtils
-from workspace_client import WorkspaceClient
+from workspace import WorkspaceClient
 
 
 # Algorithm
@@ -20,6 +20,8 @@ from workspace_client import WorkspaceClient
 
 # Staging path
 # /tmp-refactor-${uniqueid}
+
+# NOTE: notebook in Repos do not have *.py extension!!!
 
 
 class RefactoringController(object):
@@ -48,18 +50,14 @@ class RefactoringController(object):
         self.ref_util = RefactoringUtils(self._staging_path_str)
 
     def find_functions_in_script(self, script: str) -> List[str]:
-        try:
-            self._create_staging_folder()
-            return self.ref_util.find_functions_on_script(script)
-        finally:
-            self.cleanup()
+        return self.ref_util.find_functions_on_script(script)
 
     def find_functions_on_notebook(self, notebook_path: str) -> List[str]:
         try:
             self._create_staging_folder()
             obj_name = Path(notebook_path).name
             # find the equivalent path in staging based on the database
-            staging_path = self._staging_path.joinpath(obj_name)
+            staging_path = self._staging_path.joinpath(f"{obj_name}.py")
             self._client.export_source(notebook_path, staging_path)
             with staging_path.open("r") as fp:
                 return self.ref_util.find_functions_on_script(fp.read())
@@ -184,7 +182,6 @@ class RefactoringController(object):
         ori_paths = set(self.remove_prefix(p, self._staging_path_str + "/") for p in ori_paths)
 
         # staging paths --> drop the staging paths prefix
-        # TODO: ignore the .ropeproject
         staging_paths = self.tree_dir(str(self._staging_path))
         staging_paths = set(self.remove_prefix(p, self._staging_path_str + "/") for p in staging_paths)
         staging_paths = set(filter(lambda x: ".ropeproject" not in x, staging_paths))
@@ -210,7 +207,7 @@ class RefactoringController(object):
             elif staging_path.is_file():
                 shutil.copyfile(staging_path, self._base_workspace + ws_path_key)
 
-        # deleted: doesn't exist in staging
+        # deleted: exist in Repos, doesn't exist in staging
         for i, path in enumerate(deleted_set):
             staging_path = self._staging_path.joinpath(path)
             # if exist in staging, get it otherwise fallback to file
