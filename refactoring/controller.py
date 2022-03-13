@@ -103,7 +103,7 @@ class RefactoringController(object):
             dst_staging_path = self.remove_staging_prefix(dst_staging_path)
 
             print(f"Moving from {src_path} to {dst_path}")
-            changed_resources = self.ref_util.move_functions(src_staging_path, func_names, dst_staging_path)
+            change_set, changed_resources = self.ref_util.move_functions(src_staging_path, func_names, dst_staging_path)
 
             # the refactor may modify existing files, create new files or remove files
             self.copy_to_workspace(changed_resources)

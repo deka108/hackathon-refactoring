@@ -3,6 +3,7 @@ from itertools import accumulate
 from pathlib import Path
 from typing import List, Optional
 
+from rope.base.change import ChangeSet
 from rope.base.exceptions import RopeError
 from rope.base.project import Project
 from rope.base import libutils
@@ -110,7 +111,7 @@ class RefactoringUtils(object):
         return self._project.get_resource(path)
 
     # this is local filepath on staging
-    def move_functions(self, src_path: str, func_names: List[str], dest_path: str) -> List[Resource]:
+    def move_functions(self, src_path: str, func_names: List[str], dest_path: str) -> (ChangeSet, List[Resource]):
         """
 
         Parameters
@@ -140,4 +141,4 @@ class RefactoringUtils(object):
                 for changed_file in changes.get_changed_resources():
                     changed_files.append(changed_file)
 
-        return changed_files
+        return changes, changed_files
