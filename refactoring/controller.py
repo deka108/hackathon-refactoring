@@ -2,12 +2,12 @@ import os
 import shutil
 import uuid
 from pathlib import Path
-from typing import Callable, Any, List, Set, Dict
+from typing import List, Set, Dict
 
 from rope.base.resources import Resource
 
-from refactor import RefactoringUtils
-from workspace import WorkspaceClient
+from refactoring.refactor import RefactoringUtils
+from refactoring.workspace import WorkspaceClient
 
 
 # Algorithm
@@ -36,14 +36,15 @@ class RefactoringController(object):
         self._repo = repo
         self._unique_id = str(uuid.uuid4())
         self._base_workspace = base_workspace_dir
-        self._staging_path = Path(f"/tmp/refactor-{self._unique_id}")
-        self._staging_path_str = str(self._staging_path)
+        self.staging_path = Path(f"/tmp/refactor-{self._unique_id}")
+        print(f"Staging path: {self.staging_path}")
+        self._staging_path_str = str(self.staging_path)
         # may not need these
         self.original_objs = None
         self.staging_objs = None
-        # map staging path to original path
+        # map staging path to original Repos path
         self.staging_idx = {}
-        # map original path to the workspace object
+        # map original Repos path to staging path
         self.original_idx = {}
 
         self._client = WorkspaceClient(api_url=api_url, api_token=api_token)
@@ -57,24 +58,54 @@ class RefactoringController(object):
             self._create_staging_folder()
             obj_name = Path(notebook_path).name
             # find the equivalent path in staging based on the database
-            staging_path = self._staging_path.joinpath(f"{obj_name}.py")
+            staging_path = self.staging_path.joinpath(f"{obj_name}.py")
             self._client.export_source(notebook_path, staging_path)
-            with staging_path.open("r") as fp:
-                return self.ref_util.find_functions_on_script(fp.read())
+            staging_path = self.remove_staging_prefix(str(staging_path))
+            return self.ref_util.find_functions_on_file(staging_path)
         finally:
             self.cleanup()
 
     def find_functions_on_file(self, file_path: str) -> List[str]:
-        with open(self._base_workspace + file_path, "r") as fp:
-            return self.ref_util.find_functions_on_script(fp.read())
+        try:
+            self._create_staging_folder()
+            obj_name = Path(file_path).name
+            staging_path = self.staging_path.joinpath(obj_name)
+            # copy workspace file to staging area
+            shutil.copyfile(self._base_workspace + file_path, staging_path)
+            staging_path = self.remove_staging_prefix(str(staging_path))
+            return self.ref_util.find_functions_on_script(staging_path)
+        finally:
+            self.cleanup()
 
-    def refactor(self, func: Callable[..., Any], *args, **kwargs):
+    def refactor_move(self, src_path: str, func_names: List[str], dst_path: str):
+        """
+
+        Parameters
+        ----------
+        src_path: a Repos path
+        func_names: list of function names to be moved from src_path to dst_path
+        dst_path: a Repos path
+
+        Returns
+        -------
+
+        """
         try:
             self.setup()
 
-            # the refactor may modify exist files, create new files or remove files
-            changed_resources = func(*args, **kwargs)
+            # if src doesn't exist, throw an error
+            assert src_path in self.original_idx, f"Source path {src_path} doesn't exist in Repos"
+            # if dst doesn't exist throw an error
+            assert dst_path in self.original_idx, f"Destination path {dst_path} doesn't exist in Repos"
+            src_staging_path = self.original_idx[src_path]
+            src_staging_path = self.remove_staging_prefix(src_staging_path)
+            dst_staging_path = self.original_idx[dst_path]
+            dst_staging_path = self.remove_staging_prefix(dst_staging_path)
 
+            print(f"Moving from {src_path} to {dst_path}")
+            changed_resources = self.ref_util.move_functions(src_staging_path, func_names, dst_staging_path)
+
+            # the refactor may modify existing files, create new files or remove files
             self.copy_to_workspace(changed_resources)
         finally:
             self.cleanup()
@@ -85,12 +116,12 @@ class RefactoringController(object):
         self.get_all_objects()
 
     def _create_staging_folder(self):
-        self._staging_path.mkdir(parents=True, exist_ok=True)
+        self.staging_path.mkdir(parents=True, exist_ok=True)
 
     def get_all_objects(self):
         self.original_objs, self.staging_objs = self.copy_to_staging(
             repo_dir=self._repo,
-            parent_staging_dir=self._staging_path,
+            parent_staging_dir=self.staging_path,
             parent_dir=""
         )
 
@@ -145,7 +176,7 @@ class RefactoringController(object):
             staging_objs.append(staging_obj)
 
             # update original index
-            self.original_idx[obj_path] = obj
+            self.original_idx[obj_path] = staging_key
 
         return original_objs, staging_objs
 
@@ -158,10 +189,13 @@ class RefactoringController(object):
     def remove_prefix(text, prefix):
         return text[len(prefix):]
 
+    def remove_staging_prefix(self, text):
+        return self.remove_prefix(text, self._staging_path_str + "/")
+
     # only copy those which are affected by the refactor
     def copy_to_workspace(self, changed_files: List[Resource]):
         # algorithm
-        # 1. get the deleted and modified set
+        # 1. get the deleted and modified set: all is relative to the project's root / staging path
         # 2. for each modified: upload to Repo
         # 3. for each deleted: delete from Repo
 
@@ -179,11 +213,11 @@ class RefactoringController(object):
         
         # add to created set: get the ones that exist in changed but not in Repos
         ori_paths = set(self.staging_idx.keys())
-        ori_paths = set(self.remove_prefix(p, self._staging_path_str + "/") for p in ori_paths)
+        ori_paths = set(self.remove_staging_prefix(p) for p in ori_paths)
 
         # staging paths --> drop the staging paths prefix
-        staging_paths = self.tree_dir(str(self._staging_path))
-        staging_paths = set(self.remove_prefix(p, self._staging_path_str + "/") for p in staging_paths)
+        staging_paths = self.tree_dir(str(self.staging_path))
+        staging_paths = set(self.remove_staging_prefix(p) for p in staging_paths)
         staging_paths = set(filter(lambda x: ".ropeproject" not in x, staging_paths))
 
         # get the modified / created set: the ones exist in staging but not in repo
@@ -196,7 +230,7 @@ class RefactoringController(object):
 
         # create or modified: exist in staging, may or may not exist in repo
         for path in mod_or_created_set:
-            staging_path = self._staging_path.joinpath(path)
+            staging_path = self.staging_path.joinpath(path)
             # if exist in staging, get it otherwise fallback to repo
             ws_path_key = self.staging_idx.get(str(staging_path), f"{self._repo}/{path}")
 
@@ -209,7 +243,7 @@ class RefactoringController(object):
 
         # deleted: exist in Repos, doesn't exist in staging
         for i, path in enumerate(deleted_set):
-            staging_path = self._staging_path.joinpath(path)
+            staging_path = self.staging_path.joinpath(path)
             # if exist in staging, get it otherwise fallback to file
             ws_path_key = self.staging_idx.get(str(staging_path), f"{self._repo}/{path}")
 
@@ -217,7 +251,7 @@ class RefactoringController(object):
             self._client.delete(ws_path_key, recursive=True)
 
     def cleanup(self):
-        shutil.rmtree(self._staging_path)
+        shutil.rmtree(self.staging_path)
 
     @staticmethod
     def tree_dir(path: str, root_dir: str = "") -> Set[str]:

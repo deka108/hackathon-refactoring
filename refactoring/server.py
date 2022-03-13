@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,6 +7,9 @@ from fastapi import APIRouter
 from fastapi.params import Query
 from pydantic import BaseModel, conlist, Field
 from typing import List
+
+import sys
+sys.path.insert(0, str(Path(".").resolve().parent))
 
 from controller import RefactoringController
 
@@ -59,7 +63,7 @@ class MoveRequest(BaseModel):
 @refactor_route.post("/move-functions")
 async def move_functions(req: MoveRequest):
     rc = RefactoringController(repo=os.getenv("REPO"))
-    rc.refactor(rc.ref_util.move_functions, req.src_path, req.function_names, req.dest_path)
+    rc.refactor_move(req.src_path, req.function_names, req.dest_path)
     return f"moved {req.function_names} from {req.src_path} to {req.dest_path}"
 
 app = FastAPI()

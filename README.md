@@ -13,4 +13,4 @@ then, run
 ```
 
 ## The API docs
-Opens `http://localhost:9999/docs`
+Opens `http://localhost:9999/docs` or `http://localhost:9999/redoc` 

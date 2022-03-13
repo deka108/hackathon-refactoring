@@ -3,6 +3,7 @@ from itertools import accumulate
 from pathlib import Path
 from typing import List, Optional
 
+from rope.base.exceptions import RopeError
 from rope.base.project import Project
 from rope.base import libutils
 from rope.base.pyobjectsdef import PyModule
@@ -39,17 +40,38 @@ class RefactoringUtils(object):
         py_mod = libutils.get_string_module(self._project, code_str)
         return self._get_functions_from_pymod(py_mod)
 
-    # cannot be used for now
     def find_functions_on_file(self, file_path: str) -> List[str]:
+        """Get the functions of a relative path to the Project.
+
+        Parameters
+        ----------
+        file_path: relative to project root.
+
+        Returns
+        -------
+
+        """
         res = self._project.get_resource(file_path)
         py_mod = self._project.get_module(libutils.modname(res))
         return self._get_functions_from_pymod(py_mod)
 
     def create_pkg(self, pkg_name: str):
-        create_package(self._project, pkg_name)
+        try:
+            create_package(self._project, pkg_name)
+        except RopeError as exc:
+            if "already exists" in str(exc):
+                pass
+            else:
+                raise
 
     def create_module(self, module_name: str):
-        create_module(self._project, module_name)
+        try:
+            create_module(self._project, module_name)
+        except RopeError as exc:
+            if "already exists" in str(exc):
+                pass
+            else:
+                raise
 
     def _find_function(self, src_res: Resource, function_name: str) -> Optional[Occurrence]:
         finder = Finder(self._project, function_name)
@@ -86,8 +108,22 @@ class RefactoringUtils(object):
                 create_module(self._project, full_mod)
 
         return self._project.get_resource(path)
-    
+
+    # this is local filepath on staging
     def move_functions(self, src_path: str, func_names: List[str], dest_path: str) -> List[Resource]:
+        """
+
+        Parameters
+        ----------
+        src_path: relative to project root
+        func_names: list of function names
+        dest_path: relative to project root
+
+        Returns
+        -------
+
+        """
+        # relative to project root
         src_res = self._project.get_resource(src_path)
         # may modify the staging directory: adding new files
         dest_res = self.get_or_create_resource(dest_path)
