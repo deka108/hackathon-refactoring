@@ -3,7 +3,8 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import APIRouter
-from pydantic import BaseModel, conlist
+from fastapi.params import Query
+from pydantic import BaseModel, conlist, Field
 from typing import List
 
 from controller import RefactoringController
@@ -13,11 +14,11 @@ list_route = APIRouter()
 
 
 class Content(BaseModel):
-    content: str
+    content: str = Field(..., description="The source code string.")
 
 
 class ListOfFunctions(BaseModel):
-    functions: List[str]
+    functions: List[str] = Field(..., description="The List of Function and Names in the File.")
 
 
 @list_route.post("/code-string", response_model=ListOfFunctions)
@@ -27,7 +28,7 @@ async def find_functions_on_script(req: Content):
 
 
 @list_route.get("/notebook", response_model=ListOfFunctions)
-async def find_functions_on_notebook(path: str):
+async def find_functions_on_notebook(path: str = Query(..., description="The Repos notebook path")):
     rc = RefactoringController(repo=os.getenv("REPO"))
     # algo
     # 1. export to a staging file
@@ -37,7 +38,7 @@ async def find_functions_on_notebook(path: str):
 
 
 @list_route.get("/file", response_model=ListOfFunctions)
-async def find_functions_on_file(path: str):
+async def find_functions_on_file(path: str = Query(..., description="The Repos Workspace Files path")):
     rc = RefactoringController(repo=os.getenv("REPO"))
     # algo
     # 1. convert path to wsfs path
@@ -50,17 +51,16 @@ refactor_route = APIRouter()
 
 
 class MoveRequest(BaseModel):
-    src: str
-    function_names: conlist(str, min_items=1)
-    dst: str
-    notebook_id: str
+    src_path: str = Field(..., description="The source Repos path where the functions are located.")
+    function_names: conlist(str, min_items=1) = Field(..., description="The array of function or class names.")
+    dest_path: str = Field(..., description="The destination Repos path where the functions will be moved.")
 
 
-@refactor_route.post("/move-function")
+@refactor_route.post("/move-functions")
 async def move_functions(req: MoveRequest):
     rc = RefactoringController(repo=os.getenv("REPO"))
-    rc.refactor(rc.ref_util.move_functions, req.src, req.function_names, req.dst)
-    return f"moved {req.function_names} from {req.src} to {req.dst}"
+    rc.refactor(rc.ref_util.move_functions, req.src_path, req.function_names, req.dest_path)
+    return f"moved {req.function_names} from {req.src_path} to {req.dest_path}"
 
 app = FastAPI()
 app.add_middleware(
