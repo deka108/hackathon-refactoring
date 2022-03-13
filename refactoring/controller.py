@@ -172,33 +172,36 @@ class RefactoringController(object):
         deleted_set = set()
 
         # get the modified or created set vs delete set from changed_files
+        # relative to staging path
         for changed_src in changed_files:
             if changed_src.exists():
                 mod_or_created_set.add(changed_src.path)
             else:
                 deleted_set.add(changed_src.path)
-
+        
         # add to created set: get the ones that exist in changed but not in Repos
-        # repos paths --> drop the repos prefix
-        repos_paths = set(self.original_idx.keys())
-        repos_paths = set(self.remove_prefix(p, self._repo + "/") for p in repos_paths)
+        ori_paths = set(self.staging_idx.keys())
+        ori_paths = set(self.remove_prefix(p, self._staging_path_str + "/") for p in ori_paths)
 
         # staging paths --> drop the staging paths prefix
+        # TODO: ignore the .ropeproject
         staging_paths = self.tree_dir(str(self._staging_path))
         staging_paths = set(self.remove_prefix(p, self._staging_path_str + "/") for p in staging_paths)
+        staging_paths = set(filter(lambda x: ".ropeproject" not in x, staging_paths))
 
         # get the modified / created set: the ones exist in staging but not in repo
-        mod_or_created_set = mod_or_created_set | staging_paths.difference(repos_paths)
+        mod_or_created_set = mod_or_created_set | staging_paths.difference(ori_paths)
         mod_or_created_set = sorted(mod_or_created_set)
 
         # add to deleted set: get the ones that exist in Repos but not in staging
-        deleted_set = deleted_set | repos_paths.difference(staging_paths)
+        deleted_set = deleted_set | ori_paths.difference(staging_paths)
         deleted_set = sorted(deleted_set)
 
         # create or modified: exist in staging, may or may not exist in repo
         for path in mod_or_created_set:
             staging_path = self._staging_path.joinpath(path)
-            ws_path_key = f"{self._repo}/{path}"
+            # if exist in staging, get it otherwise fallback to repo
+            ws_path_key = self.staging_idx.get(str(staging_path), f"{self._repo}/{path}")
 
             if staging_path.is_dir():
                 self._client.mkdirs(ws_path_key)
@@ -209,7 +212,10 @@ class RefactoringController(object):
 
         # deleted: doesn't exist in staging
         for i, path in enumerate(deleted_set):
-            ws_path_key = f"{self._repo}/{path}"
+            staging_path = self._staging_path.joinpath(path)
+            # if exist in staging, get it otherwise fallback to file
+            ws_path_key = self.staging_idx.get(str(staging_path), f"{self._repo}/{path}")
+
             # optimization: if the parent path is already deleted then we don't need to delete
             self._client.delete(ws_path_key, recursive=True)
 
@@ -226,6 +232,7 @@ class RefactoringController(object):
             # get the relative path instead
             rel_dir = os.path.relpath(dirname, root_dir)
             rel_dir = rel_dir.lstrip("../")
+            rel_dir = f"/{rel_dir}"
 
             # print path to all subdirectories first.
             for subdirname in dirnames:
